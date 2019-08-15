@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
+	osuser "os/user"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,16 +24,17 @@ const (
 	SCHEMA1_MEDIA_TYPE_MANIFEST = "application/vnd.docker.distribution.manifest.v1+json"
 	SCHEMA2_MEDIA_TYPE_MANIFEST = "application/vnd.docker.distribution.manifest.v2+json"
 	NAME                        = "Zeus"
+	dockerCFGConfig             = ".docker/config.json"
 )
 
 var (
 	showVersion = true
 	addr        string // registry addr
 	schema      string
+	user        string // <name>:<pwd>
 
 	registry *Registry
-
-	auth = &AuthConfig{"admin", "changeme"}
+	auth     *AuthConfig
 )
 
 func init() {
@@ -45,6 +49,7 @@ func init() {
 	// getCmd.AddCommand(repoCmd)
 	rootCmd.PersistentFlags().StringVarP(&addr, "addr", "a", "", "registry addr (required)")
 	rootCmd.MarkPersistentFlagRequired("addr")
+	rootCmd.PersistentFlags().StringVarP(&user, "user", "u", "", "user info, <name>:<pwd>")
 
 	tagMFCmd.Flags().StringVarP(&schema, "schema", "s", "v2", "manifest schema, [v1, v2] default v2")
 	// 	rootCmd.PersistentFlags().BoolVarP(&https, "https", "", true, "whether use https")
@@ -186,23 +191,74 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	// auth := &AuthConfig{"admin", "changeme"}
-	// r, err := NewRegistry("10.6.170.191", auth)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// data, err := r.ListRepoes()
-	// data, err := r.listRepoTags("kube-system/dce-busybox")
-	// data, err := r.GetTagManifest("kube-system/dce-busybox", "1.30.1", "v2")
-	// if err != nil {
-	// 	fmt.Printf("%v\n", err)
-	// }
-	// fmt.Printf("%s\n", data)
-	// printList(data)
+}
+
+func getAuthConfig() *AuthConfig {
+	var name, pwd string
+	if user != "" {
+		cp := strings.SplitN(user, ":", 2)
+		name = cp[0]
+		if len(cp) == 2 {
+			pwd = cp[1]
+		}
+	} else {
+		name, pwd = getAuthFromDockerCFG(addr)
+	}
+
+	return &AuthConfig{name, pwd}
+}
+
+func getAuthFromDockerCFG(addr string) (name, pwd string) {
+	u, err := osuser.Current()
+	if err != nil {
+		log.Debug(err)
+		return
+	}
+
+	aPath := filepath.Join(u.HomeDir, dockerCFGConfig)
+	raw, err := ioutil.ReadFile(aPath)
+	if err != nil {
+		log.Debugf("get registry auth info from %s err: %s", dockerCFGConfig, err)
+		return
+	}
+	type auth struct {
+		Auth string `json:"auth"`
+	}
+
+	type AuthConf struct {
+		Auths map[string]auth `json:"auths"`
+	}
+	conf := &AuthConf{}
+	fmt.Println(string(raw))
+	err = json.Unmarshal(raw, conf)
+	if err != nil {
+		log.Debugf("unmarshal %s err: %s", dockerCFGConfig, err)
+		return
+	}
+	c, ok := conf.Auths[addr]
+	if !ok {
+		return
+	}
+	fmt.Println(conf)
+	if c.Auth == "" {
+		return
+	}
+	decoded, err := base64.StdEncoding.DecodeString(c.Auth)
+	if err != nil {
+		log.Debugf("decode error: %s", err)
+		return
+	}
+	cp := strings.SplitN(string(decoded), ":", 2)
+	name = cp[0]
+	if len(cp) == 2 {
+		pwd = cp[1]
+	}
+	return
 }
 
 func getRegistry() *Registry {
 	var err error
+	auth := getAuthConfig()
 	registry, err = NewRegistry(addr, auth)
 	if err != nil {
 		log.Errorf("init registry err: %v", err)
