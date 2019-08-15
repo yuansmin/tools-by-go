@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -32,13 +31,13 @@ var (
 	addr        string // registry addr
 	schema      string
 	user        string // <name>:<pwd>
+	verbose     bool   // output verbose if true
 
 	registry *Registry
 	auth     *AuthConfig
 )
 
 func init() {
-	log.SetLevel(logrus.DebugLevel)
 	rootCmd.AddCommand(repoCmd)
 	repoCmd.AddCommand(repoListCmd)
 	rootCmd.AddCommand(tagCmd)
@@ -50,6 +49,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&addr, "addr", "a", "", "registry addr (required)")
 	rootCmd.MarkPersistentFlagRequired("addr")
 	rootCmd.PersistentFlags().StringVarP(&user, "user", "u", "", "user info, <name>:<pwd>")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "output verbose info")
 
 	tagMFCmd.Flags().StringVarP(&schema, "schema", "s", "v2", "manifest schema, [v1, v2] default v2")
 	// 	rootCmd.PersistentFlags().BoolVarP(&https, "https", "", true, "whether use https")
@@ -68,6 +68,14 @@ var rootCmd = &cobra.Command{
 			return errors.New("requires at least one arg")
 		}
 		return nil
+	},
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if verbose {
+			log.SetLevel(log.DebugLevel)
+		} else {
+			log.SetLevel(log.InfoLevel)
+		}
+
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		if showVersion {
@@ -92,7 +100,7 @@ var repoCmd = &cobra.Command{
 	Short: "repo",
 	Long:  `repo`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("hello world~")
+		cmd.Usage()
 	},
 }
 
@@ -188,7 +196,7 @@ var tagCPCmd = &cobra.Command{
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		log.Errorf("%s", err)
 		os.Exit(1)
 	}
 }
@@ -229,7 +237,6 @@ func getAuthFromDockerCFG(addr string) (name, pwd string) {
 		Auths map[string]auth `json:"auths"`
 	}
 	conf := &AuthConf{}
-	fmt.Println(string(raw))
 	err = json.Unmarshal(raw, conf)
 	if err != nil {
 		log.Debugf("unmarshal %s err: %s", dockerCFGConfig, err)
@@ -239,7 +246,6 @@ func getAuthFromDockerCFG(addr string) (name, pwd string) {
 	if !ok {
 		return
 	}
-	fmt.Println(conf)
 	if c.Auth == "" {
 		return
 	}
@@ -374,7 +380,7 @@ func (r *Registry) GetToken(scope string) (token string, err error) {
 		if server, err := r.getAuthServer(); err != nil {
 			return "", err
 		} else {
-			fmt.Printf("get auth server address: %s\n", server)
+			log.Infof("get auth server address: %s\n", server)
 			r.authServerAddress = server
 		}
 	}
@@ -441,7 +447,7 @@ func parseBeararAuth(raw string) (string, error) {
 			m[pp[0]] = strings.ReplaceAll(pp[1], "\"", "")
 		}
 	}
-	fmt.Printf("parts: %s\nm: %v\n", parts, m)
+	log.Debugf("parts: %s\nm: %v\n", parts, m)
 	var realm string
 	if _, ok := m["realm"]; !ok {
 		return "", fmt.Errorf("bad bearer header, no realm: %s", raw)
@@ -704,7 +710,6 @@ func NewRegistry(address string, auth *AuthConfig) (*Registry, error) {
 	r.httpClient = httpClient
 	address = fmt.Sprintf("%s://%s", schema, address)
 	r.Address = address
-	fmt.Printf("r %v\n", r)
 	return r, nil
 }
 
@@ -716,6 +721,7 @@ func isSuccessCode(code int) bool {
 }
 
 func printList(array []string) {
+	fmt.Println()
 	for _, v := range array {
 		fmt.Printf("%v\n", v)
 	}
