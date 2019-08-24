@@ -6,7 +6,7 @@
 
 `registry-cli -r <registry-addr> -u <username>:<password> repo list`
 
-list repositories by namespace, TODO
+#### list repositories by namespace
 
 `registry-cli get repo -n library`
 

@@ -12,6 +12,7 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +39,8 @@ var (
 )
 
 func init() {
+	rootCmd.AddCommand(nsCmd)
+	nsCmd.AddCommand(nsListCmd)
 	rootCmd.AddCommand(repoCmd)
 	repoCmd.AddCommand(repoListCmd)
 	rootCmd.AddCommand(tagCmd)
@@ -69,6 +72,24 @@ var rootCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Usage()
+	},
+}
+
+var nsCmd = &cobra.Command{
+	Use:   "ns",
+	Short: "namespace",
+	Long:  `namespace`,
+	Run: func(cmd *cobra.Command, args []string) {
+		cmd.Usage()
+	},
+}
+
+var nsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "list namespaces",
+	Long:  `list namespaces`,
+	Run: func(cmd *cobra.Command, args []string) {
+		listNamespaces(registry)
 	},
 }
 
@@ -268,6 +289,14 @@ func filterRepoByNamespace(repos []string, namespace string) []string {
 		}
 	}
 	return r
+}
+
+func listNamespaces(r *Registry) {
+	ns, err := r.ListNamespaces()
+	if err != nil {
+		log.Errorf("list repo err: %v", err)
+	}
+	printList(ns)
 }
 
 func listRepo(r *Registry, namespace string) {
@@ -499,7 +528,37 @@ func (r *Registry) ListRepoes() (repoes []string, err error) {
 	}
 
 	repoes = data["repositories"]
+	sort.Strings(repoes)
 	return
+}
+
+func getNamespacesFromRepoes(repos []string) []string {
+	ns_map := make(map[string]string)
+	for _, r := range repos {
+		part := strings.SplitN(r, "/", 2)
+		if len(part) == 2 {
+			ns_map[part[0]] = ""
+		} else {
+			// empty namespace, "library" in docker hub
+			ns_map[""] = ""
+		}
+	}
+
+	var ns []string
+	for k, _ := range ns_map {
+		ns = append(ns, k)
+	}
+	return ns
+}
+
+func (r *Registry) ListNamespaces() ([]string, error) {
+	repos, err := r.ListRepoes()
+	if err != nil {
+		return nil, err
+	}
+	ns := getNamespacesFromRepoes(repos)
+	sort.Strings(ns)
+	return ns, nil
 }
 
 func (r *Registry) ListRepoTags(repo_name string) (tags []string, err error) {
@@ -530,6 +589,7 @@ func (r *Registry) ListRepoTags(repo_name string) (tags []string, err error) {
 	}
 
 	tags = data.Tags
+	sort.Strings(tags)
 	return
 }
 
