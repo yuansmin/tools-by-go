@@ -22,16 +22,15 @@ import (
 const (
 	SCHEMA1_MEDIA_TYPE_MANIFEST = "application/vnd.docker.distribution.manifest.v1+json"
 	SCHEMA2_MEDIA_TYPE_MANIFEST = "application/vnd.docker.distribution.manifest.v2+json"
-	NAME                        = "Zeus"
+	NAME                        = "registry-cli"
 	dockerCFGConfig             = ".docker/config.json"
 )
 
 var (
-	showVersion = true
-	addr        string // registry addr
-	schema      string
-	user        string // <name>:<pwd>
-	verbose     bool   // output verbose if true
+	registryAddr string // registry addr
+	schema       string
+	user         string // <name>:<pwd>
+	verbose      bool   // output verbose if true
 
 	registry *Registry
 	auth     *AuthConfig
@@ -45,51 +44,27 @@ func init() {
 	tagCmd.AddCommand(tagMFCmd)
 	tagCmd.AddCommand(tagDelCmd)
 	tagCmd.AddCommand(tagCPCmd)
-	// getCmd.AddCommand(repoCmd)
-	rootCmd.PersistentFlags().StringVarP(&addr, "addr", "a", "", "registry addr (required)")
-	rootCmd.MarkPersistentFlagRequired("addr")
+
+	rootCmd.PersistentFlags().StringVarP(&registryAddr, "registry-addr", "r", "", "registry addr (required)")
+	rootCmd.MarkPersistentFlagRequired("registryAddr")
 	rootCmd.PersistentFlags().StringVarP(&user, "user", "u", "", "user info, <name>:<pwd>")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "output verbose info")
 
 	tagMFCmd.Flags().StringVarP(&schema, "schema", "s", "v2", "manifest schema, [v1, v2] default v2")
-	// 	rootCmd.PersistentFlags().BoolVarP(&https, "https", "", true, "whether use https")
-	// 	rootCmd.PersistentFlags().BoolVarP(&verify, "verify", "k", false, "whether verify https cert")
-	// 	rootCmd.PersistentFlags().IntVar(&blobCon, "blobCon", 3, "concurrence of download image layer")
-	// 	rootCmd.PersistentFlags().IntVarP(&imageCon, "imageCon", "i", 5, "concurrence of pull image")
-	// 	rootCmd.PersistentFlags().IntVarP(&times, "times", "t", 1, "run test times")
 }
 
 var rootCmd = &cobra.Command{
 	Use:   NAME,
 	Short: "a simple registry cmd tools",
 	Long:  ``,
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 2 {
-			return errors.New("requires at least one arg")
-		}
-		return nil
-	},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		if verbose {
 			log.SetLevel(log.DebugLevel)
 		} else {
 			log.SetLevel(log.InfoLevel)
 		}
-
+		registry = getRegistry()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
-		if showVersion {
-			fmt.Printf("%s 0.1.0\n", NAME)
-			return
-		}
-		cmd.Usage()
-	},
-}
-
-var getCmd = &cobra.Command{
-	Use:   "get",
-	Short: "get",
-	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Usage()
 	},
@@ -106,10 +81,9 @@ var repoCmd = &cobra.Command{
 
 var repoListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "list",
+	Short: "list all repositories",
 	Long:  `list all repositories`,
 	Run: func(cmd *cobra.Command, args []string) {
-		registry := getRegistry()
 		listRepo(registry)
 	},
 }
@@ -125,7 +99,7 @@ var tagCmd = &cobra.Command{
 
 var tagListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "list",
+	Short: "list repo tags",
 	Long:  `list repo tags`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
@@ -134,7 +108,6 @@ var tagListCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		registry := getRegistry()
 		listRepoTag(registry, args[0])
 	},
 }
@@ -154,7 +127,6 @@ var tagMFCmd = &cobra.Command{
 			log.Warnf("Invalid schema %s, use default v2", schema)
 			schema = "v1"
 		}
-		registry := getRegistry()
 		getTagManifest(registry, args[0], schema)
 	},
 }
@@ -173,7 +145,6 @@ var tagDelCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		registry := getRegistry()
 		deleteRepoTag(registry, args[0])
 	},
 }
@@ -189,7 +160,6 @@ var tagCPCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		registry := getRegistry()
 		cpRepoTag(registry, args[0], args[1])
 	},
 }
@@ -210,7 +180,10 @@ func getAuthConfig() *AuthConfig {
 			pwd = cp[1]
 		}
 	} else {
-		name, pwd = getAuthFromDockerCFG(addr)
+		name, pwd = getAuthFromDockerCFG(registryAddr)
+		if name != "" && pwd != "" {
+			log.Debugf("get registry account from ~/.docker/config")
+		}
 	}
 
 	return &AuthConfig{name, pwd}
@@ -265,7 +238,7 @@ func getAuthFromDockerCFG(addr string) (name, pwd string) {
 func getRegistry() *Registry {
 	var err error
 	auth := getAuthConfig()
-	registry, err = NewRegistry(addr, auth)
+	registry, err = NewRegistry(registryAddr, auth)
 	if err != nil {
 		log.Errorf("init registry err: %v", err)
 		os.Exit(0)
@@ -317,12 +290,13 @@ func getTagManifest(r *Registry, repoName, schema string) {
 
 func deleteRepoTag(r *Registry, repoName string) {
 	cp := strings.SplitN(repoName, ":", 2)
-	repoName, tag := cp[0], cp[1]
-	err := r.DeleteRepoTag(repoName, tag)
+	name, tag := cp[0], cp[1]
+	err := r.DeleteRepoTag(name, tag)
 	if err != nil {
 		log.Errorf("delete tag err: %v", err)
 		os.Exit(1)
 	}
+	log.Infof("delete tag %s success", repoName)
 }
 
 // source, target are image name with tag. eg: dao-2048:0.1
@@ -360,7 +334,7 @@ type Registry struct {
 	authServerAddress string
 }
 
-// do registry http request, handle auth token, get new or cache token, refresh token when expired
+// do registry http request, handle auth token, get new or cache token
 func (r *Registry) do(req *http.Request, scope string) (*http.Response, error) {
 	token := r.scopeToken[1]
 	if scope != r.scopeToken[0] {
@@ -371,6 +345,7 @@ func (r *Registry) do(req *http.Request, scope string) (*http.Response, error) {
 		}
 	}
 	setToken(req, token)
+	log.Debugf("do request %s %s", req.Method, req.URL.Path)
 	res, err := r.httpClient.Do(req)
 	return res, err
 }
@@ -380,19 +355,18 @@ func (r *Registry) GetToken(scope string) (token string, err error) {
 		if server, err := r.getAuthServer(); err != nil {
 			return "", err
 		} else {
-			log.Infof("get auth server address: %s\n", server)
+			log.Debugf("get auth server address: %s\n", server)
 			r.authServerAddress = server
 		}
 	}
 
-	// todo: auth
 	req, _ := http.NewRequest("GET", r.authServerAddress, nil)
 	req.SetBasicAuth(r.authConfig.username, r.authConfig.password)
 	reqParams := req.URL.Query()
 	reqParams.Add("scope", scope)
 	req.URL.RawQuery = reqParams.Encode()
 
-	log.Debugf("request %s %s", req.Method, req.URL.String())
+	log.Debugf("do request %s %s", req.Method, req.URL.String())
 	res, err := r.httpClient.Do(req)
 	if err != nil {
 		return
@@ -404,12 +378,14 @@ func (r *Registry) GetToken(scope string) (token string, err error) {
 	} else if !isSuccessCode(res.StatusCode) {
 		return "", fmt.Errorf("get token err: %d", res.StatusCode)
 	}
-	var data map[string]string
+	var data struct {
+		Token string `json:"token"`
+	}
 	decoder := json.NewDecoder(res.Body)
 	if err = decoder.Decode(&data); err != nil {
 		return
 	}
-	token = data["token"]
+	token = data.Token
 	return
 }
 
@@ -422,14 +398,16 @@ func (r *Registry) getAuthServer() (server string, err error) {
 	}
 
 	defer res.Body.Close()
-	// todo: optimize
-	if res.StatusCode >= 500 {
-		data, err := ioutil.ReadAll(res.Body)
-		msg := fmt.Sprintf("%d %s", res.StatusCode, string(data))
-		if err != nil {
-			msg = fmt.Sprintf("%s%s", msg, err)
-		}
-		err = fmt.Errorf(msg)
+	if !isSuccessCode(res.StatusCode) && res.StatusCode != 401 {
+		fmt.Println("yes")
+		// data, err := ioutil.ReadAll(res.Body)
+		// msg := fmt.Sprintf("%d %s", res.StatusCode, string(data))
+		// if err != nil {
+		// 	msg = fmt.Sprintf("%s%s", msg, err)
+		// }
+		// err = fmt.Errorf(msg)
+
+		_, err = checkAndReadResponse(res)
 		return "", err
 	}
 	raw := res.Header.Get("Www-Authenticate")
@@ -447,7 +425,6 @@ func parseBeararAuth(raw string) (string, error) {
 			m[pp[0]] = strings.ReplaceAll(pp[1], "\"", "")
 		}
 	}
-	log.Debugf("parts: %s\nm: %v\n", parts, m)
 	var realm string
 	if _, ok := m["realm"]; !ok {
 		return "", fmt.Errorf("bad bearer header, no realm: %s", raw)
@@ -459,9 +436,20 @@ func parseBeararAuth(raw string) (string, error) {
 	return realm, nil
 }
 
-// func generateResponseErr(res *http.Response) error {
-// 	return fmt.Errorf("%d %s", res.StatusCode, res.body)
-// }
+func checkAndReadResponse(res *http.Response) ([]byte, error) {
+	data, err := ioutil.ReadAll(res.Body)
+	if isSuccessCode(res.StatusCode) {
+		return data, err
+	}
+
+	var msg string
+	if err != nil {
+		msg = fmt.Sprintf("%d %s", res.StatusCode, err)
+	} else {
+		msg = fmt.Sprintf("%d %s", res.StatusCode, string(data))
+	}
+	return data, fmt.Errorf(msg)
+}
 
 func setToken(req *http.Request, token string) {
 	value := fmt.Sprintf("Bearer %s", token)
@@ -482,13 +470,9 @@ func (r *Registry) ListRepoes() (repoes []string, err error) {
 
 	defer res.Body.Close()
 
-	raw, err := ioutil.ReadAll(res.Body)
+	raw, err := checkAndReadResponse(res)
 	if err != nil {
-		return
-	}
-
-	if !isSuccessCode(res.StatusCode) {
-		return nil, fmt.Errorf("%d %s", res.StatusCode, raw)
+		return nil, err
 	}
 
 	data := make(map[string][]string)
@@ -515,16 +499,11 @@ func (r *Registry) ListRepoTags(repo_name string) (tags []string, err error) {
 
 	defer res.Body.Close()
 
-	raw, err := ioutil.ReadAll(res.Body)
+	raw, err := checkAndReadResponse(res)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	if !isSuccessCode(res.StatusCode) {
-		return nil, fmt.Errorf("%d %s", res.StatusCode, raw)
-	}
-
-	// data := make(map[string][]string)
 	data := struct {
 		Tags []string `json:"tags"`
 	}{}
@@ -560,14 +539,11 @@ func (r *Registry) GetTagManifest(repo_name, tag, schema string) (digest, manife
 
 	defer res.Body.Close()
 
-	raw, err := ioutil.ReadAll(res.Body)
+	raw, err := checkAndReadResponse(res)
 	if err != nil {
-		return
+		return "", "", err
 	}
 
-	if !isSuccessCode(res.StatusCode) {
-		return "", "", fmt.Errorf("%d %s", res.StatusCode, raw)
-	}
 	manifest = string(raw)
 	digest = res.Header.Get("Docker-Content-Digest")
 	return
@@ -588,13 +564,9 @@ func (r *Registry) GetTagDigest(repoName, tag string) (digest string, err error)
 
 	defer res.Body.Close()
 
-	raw, err := ioutil.ReadAll(res.Body)
+	_, err = checkAndReadResponse(res)
 	if err != nil {
-		return
-	}
-
-	if !isSuccessCode(res.StatusCode) {
-		return "", fmt.Errorf("%d %s", res.StatusCode, raw)
+		return "", err
 	}
 
 	digest = res.Header.Get("Docker-Content-Digest")
@@ -620,14 +592,7 @@ func (r *Registry) DeleteRepoTag(repoName, tag string) (err error) {
 
 	defer res.Body.Close()
 
-	raw, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return
-	}
-
-	if !isSuccessCode(res.StatusCode) {
-		return fmt.Errorf("%d %s", res.StatusCode, raw)
-	}
+	_, err = checkAndReadResponse(res)
 	return
 }
 
@@ -648,13 +613,9 @@ func (r *Registry) CreateRepoTag(repoName, tag, mf string) (digest string, err e
 
 	defer res.Body.Close()
 
-	raw, err := ioutil.ReadAll(res.Body)
+	_, err = checkAndReadResponse(res)
 	if err != nil {
-		return
-	}
-
-	if !isSuccessCode(res.StatusCode) {
-		return "", fmt.Errorf("%d %s", res.StatusCode, raw)
+		return "", err
 	}
 	digest = res.Header.Get("Docker-Content-Digest")
 	return
