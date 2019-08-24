@@ -1,4 +1,4 @@
-# a convilent cmd registry client
+# a convenint cmd registry client
 
 ## usage
 
@@ -37,7 +37,6 @@ get manifests V1
 ## design
 
 if no `-u` set, registry-cli will try to get registry account from ~/.docker/config.json
-
 
 ## build
 
