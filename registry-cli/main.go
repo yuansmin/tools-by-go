@@ -31,6 +31,7 @@ var (
 	schema       string
 	user         string // <name>:<pwd>
 	verbose      bool   // output verbose if true
+	namespace    string
 
 	registry *Registry
 	auth     *AuthConfig
@@ -50,6 +51,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&user, "user", "u", "", "user info, <name>:<pwd>")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "output verbose info")
 
+	repoListCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "filter repo by namespace")
 	tagMFCmd.Flags().StringVarP(&schema, "schema", "s", "v2", "manifest schema, [v1, v2] default v2")
 }
 
@@ -84,7 +86,7 @@ var repoListCmd = &cobra.Command{
 	Short: "list all repositories",
 	Long:  `list all repositories`,
 	Run: func(cmd *cobra.Command, args []string) {
-		listRepo(registry)
+		listRepo(registry, namespace)
 	},
 }
 
@@ -257,11 +259,25 @@ func parseImageName(name string) (repoName, tag string) {
 	return
 }
 
-func listRepo(r *Registry) {
+func filterRepoByNamespace(repos []string, namespace string) []string {
+	prefix := fmt.Sprintf("%s/", namespace)
+	var r []string
+	for _, name := range repos {
+		if strings.HasPrefix(name, prefix) {
+			r = append(r, name)
+		}
+	}
+	return r
+}
+
+func listRepo(r *Registry, namespace string) {
 
 	repos, err := r.ListRepoes()
 	if err != nil {
 		log.Errorf("list repo err: %v", err)
+	}
+	if namespace != "" {
+		repos = filterRepoByNamespace(repos, namespace)
 	}
 	printList(repos)
 }
@@ -271,6 +287,7 @@ func listRepoTag(r *Registry, repoName string) {
 	if err != nil {
 		log.Errorf("list repo tag err: %v", err)
 	}
+
 	printList(tags)
 }
 
