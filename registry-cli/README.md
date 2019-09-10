@@ -1,4 +1,4 @@
-# a convenint cmd registry client
+# a convenint registry cli tool
 
 ## usage
 
@@ -41,3 +41,7 @@ if no `-u` set, registry-cli will try to get registry account from ~/.docker/con
 ## build
 
 `GOOS=linux GOARCH=amd64 go build -o registry-cli main.go`
+
+# TODO
+
+1. add catalog n=xxx
