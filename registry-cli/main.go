@@ -33,6 +33,7 @@ var (
 	user         string // <name>:<pwd>
 	verbose      bool   // output verbose if true
 	namespace    string
+	c            int // repo count
 
 	registry *Registry
 	auth     *AuthConfig
@@ -55,6 +56,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "output verbose info")
 
 	repoListCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "filter repo by namespace")
+	repoListCmd.Flags().IntVarP(&c, "count", "c", 20, "list repo count, output maybe less than count")
 	tagMFCmd.Flags().StringVarP(&schema, "schema", "s", "v2", "manifest schema, [v1, v2] default v2")
 }
 
@@ -107,7 +109,7 @@ var repoListCmd = &cobra.Command{
 	Short: "list all repositories",
 	Long:  `list all repositories`,
 	Run: func(cmd *cobra.Command, args []string) {
-		listRepo(registry, namespace)
+		listRepo(registry, namespace, c)
 	},
 }
 
@@ -299,9 +301,9 @@ func listNamespaces(r *Registry) {
 	printList(ns)
 }
 
-func listRepo(r *Registry, namespace string) {
+func listRepo(r *Registry, namespace string, count int) {
 
-	repos, err := r.ListRepoes()
+	repos, err := r.ListRepoes(count)
 	if err != nil {
 		log.Errorf("list repo err: %v", err)
 	}
@@ -502,8 +504,8 @@ func setToken(req *http.Request, token string) {
 	req.Header.Set("Authorization", value)
 }
 
-func (r *Registry) ListRepoes() (repoes []string, err error) {
-	url := fmt.Sprintf("%s/v2/_catalog", r.Address)
+func (r *Registry) ListRepoes(count int) (repoes []string, err error) {
+	url := fmt.Sprintf("%s/v2/_catalog?n=%d", r.Address, count)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return
@@ -552,7 +554,7 @@ func getNamespacesFromRepoes(repos []string) []string {
 }
 
 func (r *Registry) ListNamespaces() ([]string, error) {
-	repos, err := r.ListRepoes()
+	repos, err := r.ListRepoes(65536)
 	if err != nil {
 		return nil, err
 	}
